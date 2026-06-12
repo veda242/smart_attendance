@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Attendance System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --surface: #151820;
+    --surface2: #1c2030;
+    --accent: #00e5a0;
+    --accent2: #0084ff;
+    --warn: #ffb800;
+    --danger: #ff4c6a;
+    --text: #e8ecf4;
+    --muted: #6b7590;
+    --border: #242840;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.1rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+  .logo span { color: var(--text); }
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 99px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.4s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── Main layout ── */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  /* ── Video panel ── */
+  .video-panel {
+    background: #080a0e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    gap: 20px;
+    border-right: 1px solid var(--border);
+  }
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #000;
+    aspect-ratio: 16/9;
+  }
+  .video-wrap img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .video-placeholder {
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.9rem;
+  }
+  .cam-icon { font-size: 3rem; opacity: 0.3; }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .subject-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    outline: none;
+    min-width: 200px;
+    transition: border-color 0.2s;
+  }
+  .subject-input:focus { border-color: var(--accent); }
+
+  .btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-start { background: var(--accent); color: #000; }
+  .btn-start:hover { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-stop  { background: var(--danger); color: #fff; }
+  .btn-stop:hover  { filter: brightness(1.2); transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ── Right sidebar ── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow-y: auto;
+  }
+
+  .sidebar-section {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat-card {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+  }
+  .stat-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* Attendance list */
+  #attendance-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .student-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:none} }
+  .avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #000;
+    flex-shrink: 0;
+  }
+  .student-info { flex: 1; }
+  .student-name { font-weight: 600; font-size: 0.92rem; }
+  .student-time { font-size: 0.75rem; color: var(--muted); }
+  .check { color: var(--accent); font-size: 1.1rem; }
+
+  /* Timetable */
+  .timetable { display: flex; flex-direction: column; gap: 8px; }
+  .slot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .slot.active {
+    border-color: var(--accent);
+    background: rgba(0,229,160,0.07);
+  }
+  .slot-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    min-width: 90px;
+  }
+  .slot-subject { font-weight: 600; }
+  .slot-badge {
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--accent);
+    color: #000;
+    letter-spacing: 0.05em;
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    background: var(--accent);
+    color: #000;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    box-shadow: 0 8px 30px rgba(0,229,160,0.25);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    z-index: 100;
+  }
+  #toast.show { transform: none; opacity: 1; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">SMART<span>ATTEND</span></div>
+  <div class="status-pill">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">OFFLINE</span>
+  </div>
+</header>
+
+<main>
+  <!-- Video Panel -->
+  <div class="video-panel">
+    <div class="video-wrap" id="video-wrap">
+      <div class="video-placeholder" id="placeholder">
+        <div class="cam-icon">📷</div>
+        <div>Start a session to begin recognition</div>
+      </div>
+      <img id="video-feed" src="" alt="Live Feed" style="display:none">
+    </div>
+
+    <div class="controls">
+      <input class="subject-input" id="subject-input" type="text"
+             placeholder="Subject name (e.g. Data Structures)" value="">
+      <button class="btn btn-start" id="btn-start" onclick="startSession()">▶ Start Session</button>
+      <button class="btn btn-stop"  id="btn-stop"  onclick="stopSession()" disabled>■ Stop</button>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Stats -->
+    <div class="sidebar-section">
+      <div class="section-title">Session Stats</div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-num" id="count-present">0</div>
+          <div class="stat-label">Present</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="session-subject" style="font-size:1rem;color:var(--accent2)">—</div>
+          <div class="stat-label">Subject</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Marked present -->
+    <div class="sidebar-section" style="flex:1">
+      <div class="section-title">Marked Present</div>
+      <div id="attendance-list">
+        <div style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px 0">
+          No one marked yet
+        </div>
+      </div>
+    </div>
+
+    <!-- Timetable -->
+    <div class="sidebar-section">
+      <div class="section-title">Today's Schedule</div>
+      <div class="timetable" id="timetable">
+        <div class="slot"><span class="slot-time">09:00–09:50</span><span class="slot-subject">Data Structures</span></div>
+        <div class="slot"><span class="slot-time">10:00–10:50</span><span class="slot-subject">Operating Systems</span></div>
+        <div class="slot"><span class="slot-time">11:00–11:50</span><span class="slot-subject">Computer Networks</span></div>
+        <div class="slot"><span class="slot-time">14:00–14:50</span><span class="slot-subject">DBMS</span></div>
+        <div class="slot"><span class="slot-time">15:00–15:50</span><span class="slot-subject">Machine Learning</span></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const socket = io();
+  let sessionActive = false;
+  const markedStudents = {};
+
+  socket.on('attendance_update', (data) => {
+    data.newly_marked.forEach(name => markStudent(name));
+    updateCount(Object.keys(markedStudents).length);
+  });
+
+  function startSession() {
+    const subject = document.getElementById('subject-input').value.trim() || 'General';
+    console.log('[START] Initiating session for subject:', subject);
+    fetch('/api/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({subject})
+    })
+    .then(r => {
+      console.log('[START] Response status:', r.status);
+      return r.json();
+    })
+    .then(data => {
+      console.log('[START] Response data:', data);
+      if (data.status === 'started' || data.status === 'already_running') {
+        sessionActive = true;
+        document.getElementById('video-feed').src = '/video_feed';
+        document.getElementById('video-feed').style.display = 'block';
+        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('status-dot').classList.add('live');
+        document.getElementById('status-text').textContent = 'LIVE';
+        document.getElementById('btn-start').disabled = true;
+        document.getElementById('btn-stop').disabled = false;
+        document.getElementById('session-subject').textContent = subject;
+        showToast('Session started: ' + subject);
+      } else {
+        const errorMsg = data.message || 'Unknown error';
+        console.error('[START] Error:', errorMsg);
+        showToast('❌ Error: ' + errorMsg);
+      }
+    })
+    .catch(err => {
+      console.error('[START] Exception:', err);
+      showToast('❌ Failed to start session: ' + err.message);
+    });
+  }
+
+  function stopSession() {
+    fetch('/api/stop', {method: 'POST'})
+    .then(r => r.json())
+    .then(() => {
+      sessionActive = false;
+      document.getElementById('video-feed').style.display = 'none';
+      document.getElementById('video-feed').src = '';
+      document.getElementById('placeholder').style.display = 'flex';
+      document.getElementById('status-dot').classList.remove('live');
+      document.getElementById('status-text').textContent = 'OFFLINE';
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+      showToast('Session ended');
+    });
+  }
+
+  function markStudent(name) {
+    if (markedStudents[name]) return;
+    const now = new Date().toLocaleTimeString();
+    markedStudents[name] = now;
+
+    const list = document.getElementById('attendance-list');
+    // Remove placeholder
+    const placeholder = list.querySelector('div[style]');
+    if (placeholder) placeholder.remove();
+
+    const initials = name.split('_').map(w => w[0]).join('').toUpperCase().slice(0,2);
+    const card = document.createElement('div');
+    card.className = 'student-card';
+    card.innerHTML = `
+      <div class="avatar">${initials}</div>
+      <div class="student-info">
+        <div class="student-name">${name.replace(/_/g,' ')}</div>
+        <div class="student-time">${now}</div>
+      </div>
+      <div class="check">✓</div>
+    `;
+    list.prepend(card);
+    showToast('✓ ' + name.replace(/_/g,' ') + ' marked present');
+  }
+
+  function updateCount(n) {
+    document.getElementById('count-present').textContent = n;
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // Poll status every 5s
+  setInterval(() => {
+    if (!sessionActive) return;
+    fetch('/api/status').then(r=>r.json()).then(data => {
+      if (data.marked) {
+        data.marked.forEach(name => markStudent(name));
+        updateCount(data.marked.length);
+      }
+    });
+  }, 5000);
+</script>
+</body>
+</html>

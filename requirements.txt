@@ -1,0 +1,12 @@
+opencv-python
+mediapipe
+facenet-pytorch
+torch
+torchvision
+numpy
+Pillow
+flask
+flask-socketio
+pandas
+scipy
+schedule
